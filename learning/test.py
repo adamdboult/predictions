@@ -1,28 +1,3 @@
-
-## Getting digit to work
-### get hypothesis needs to loop properly with ones. theta size also needs to reflect additonal columns of ones
-### get loss function: use all layers of theta
-### back propagate. get grad function
-### digit data json file
-
-### model constants as one object model.layers etc
-
-## classifcation with > 2 outcomes
-### have criteria in import with what you want to maximise (eg F1 score of y = 1, or just accuracy)
-### more dynamic rule for choosing cut offs? not just max...
-
-## Use cross validation
-### number of polynomials (max cols, may poly count)
-### lambda <- FIRST to do, (2nd done)
-### cut off criteria
-
-## Other
-### ability to load in new data to existing model
-### k fold validation or similar?
-### learning curve (for size of training set)
-### Alternative to gradient descent - solving - for smaller sets
-### if just two classifcation options, do one regression, not two
-
 ##########
 # Readme #
 ##########

@@ -1,11 +1,6 @@
-############
-## Discuss #
-############
-# object exists
-# prioritise where to look
-# do test
-# decision
-
+##########
+# Import #
+##########
 import dictionaries
 
 ##########
