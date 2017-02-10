@@ -1,11 +1,7 @@
-##########
-# Readme #
-##########
-## Uses python3
-
-############
-# Packages #
-############
+#!/usr/bin/env python3
+#############
+# Libraries #
+#############
 import numpy as np
 from numpy import inf
 import pandas as pd
@@ -17,7 +13,8 @@ import json
 #######################
 # Model specification #
 #######################
-dataSource = "data.json"
+#dataSource = "data.json"
+dataSource = sys.argv[1]
 
 yCutoff = [0]
 feat = 6
@@ -257,72 +254,73 @@ def gradDescent(X, y, outcomes, runClass, lam, alpha, thetaRange, alphaReduce, t
 with open(dataSource, encoding='utf-8') as data_file:
     jsonModel = json.loads(data_file.read())
 
-csv = pd.read_excel(jsonModel["fileName"], jsonModel["importSheet"], index_col = None, na_values = jsonModel["naArray"])
+if (jsonModel["type"] == "excel"):
+    csv = pd.read_excel(jsonModel["fileName"], jsonModel["importSheet"], index_col = None, na_values = jsonModel["naArray"])
 
-if ("rowKeep" in jsonModel):
-    keepLength = len(jsonModel["rowKeep"])
-    for i in range(0, keepLength):
-        csv = csv.drop(csv[csv[jsonModel["rowKeep"][i][0]] != jsonModel["rowKeep"][i][1]].index)
+    if ("rowKeep" in jsonModel):
+        keepLength = len(jsonModel["rowKeep"])
+        for i in range(0, keepLength):
+            csv = csv.drop(csv[csv[jsonModel["rowKeep"][i][0]] != jsonModel["rowKeep"][i][1]].index)
 
-if ("rowDrop" in jsonModel):
-    dropLength = len(jsonModel["rowDrop"])
-    for i in range(0, dropLength):
-        csv = csv.drop(csv[csv[jsonModel["rowDrop"][i][0]] == jsonModel["rowDrop"][i][1]].index)
+    if ("rowDrop" in jsonModel):
+        dropLength = len(jsonModel["rowDrop"])
+        for i in range(0, dropLength):
+            csv = csv.drop(csv[csv[jsonModel["rowDrop"][i][0]] == jsonModel["rowDrop"][i][1]].index)
 
-if ("i_range" in jsonModel):
-    if (jsonModel["i_range"] == 0):
+    if ("i_range" in jsonModel):
+        if (jsonModel["i_range"] == 0):
+            jsonModel["i_range"] = csv.shape[0]
+    else:
         jsonModel["i_range"] = csv.shape[0]
-else:
-    jsonModel["i_range"] = csv.shape[0]
 
-if ("j_range" in jsonModel):
-    if (jsonModel["j_range"] == 0):
+    if ("j_range" in jsonModel):
+        if (jsonModel["j_range"] == 0):
+            jsonModel["j_range"] = csv.shape[1]
+    else:
         jsonModel["j_range"] = csv.shape[1]
-else:
-    jsonModel["j_range"] = csv.shape[1]
 
-if (feat == 0):
+    if (feat == 0):
         feat = jsonModel["j_range"]
 
-for i in range(0, jsonModel["i_range"]):
-    for j in range(0, 1 + jsonModel["j_range"] - feat):
-        row = i * jsonModel["j_range"] + j
-        dfTemp = np.array(csv.iloc[jsonModel["yOffset"] + i: jsonModel["yOffset"] + i + 1, jsonModel["xOffset"] + j - feat: jsonModel["xOffset"] + j])
+    for i in range(0, jsonModel["i_range"]):
+        for j in range(0, 1 + jsonModel["j_range"] - feat):
+            row = i * jsonModel["j_range"] + j
+            dfTemp = np.array(csv.iloc[jsonModel["yOffset"] + i: jsonModel["yOffset"] + i + 1, jsonModel["xOffset"] + j - feat: jsonModel["xOffset"] + j])
+            
+            if ((i + j) == 0):
+                newArray = np.array(dfTemp)
+            else:
+                newArray = np.insert(newArray, [1], dfTemp, axis = 0)
 
-        if ((i + j)==0):
-            newArray = np.array(dfTemp)
-        else:
-            newArray = np.insert(newArray, [1], dfTemp, axis = 0)
+    df = pd.DataFrame(data = newArray)
+    df = df.dropna()
 
-df = pd.DataFrame(data = newArray)
-df = df.dropna()
+    m = df.shape[0]
 
-m = df.shape[0]
+    X = np.array(df.iloc[:, 0: feat - 1], dtype = float)
+    y = np.array(df.iloc[:, feat - 1: feat], dtype = float)
 
-X = np.array(df.iloc[:, 0: feat - 1], dtype = float)
-y = np.array(df.iloc[:, feat - 1: feat], dtype = float)
+    oneCol = np.ones((m, 1))
+    X = np.append(oneCol, X, axis = 1)
 
-oneCol = np.ones((m, 1))
-X = np.append(oneCol, X, axis = 1)
+    if (runClass == 1):
+        y_temp = np.zeros_like (y)
+        y_temp[:] = y
 
-if (runClass == 1):
-    y_temp = np.zeros_like (y)
-    y_temp[:] = y
+        y_temp[y < yCutoff] = 1
+        y_temp[y >= yCutoff] = 0
 
-    y_temp[y < yCutoff] = 1
-    y_temp[y >= yCutoff] = 0
+        y[:] = y_temp
 
-    y[:] = y_temp
-
-    outcomes = int(np.amax(y, axis = 0) + 1)
+        outcomes = int(np.amax(y, axis = 0) + 1)
     
-    yArray = np.zeros((m, outcomes))
+        yArray = np.zeros((m, outcomes))
     
-    for i in range(0, outcomes):
-        yArray[:, i: i + 1][y == i] = 1
+        for i in range(0, outcomes):
+            yArray[:, i: i + 1][y == i] = 1
 
-    y = np.zeros_like (yArray)
-    y[:] = yArray
+        y = np.zeros_like (yArray)
+        y[:] = yArray
 
 ####################
 # Training/CV/Test #

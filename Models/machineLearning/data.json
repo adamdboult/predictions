@@ -1,4 +1,5 @@
 {
+    "type": "excel",
     "naArray": ["n/a", "--"],
     "importSheet": "Sheet1",
     "fileName": "testData.xls",

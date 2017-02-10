@@ -1,0 +1,11 @@
+{
+    "type": "excel",
+    "naArray": ["n/a", "--"],
+    "importSheet": "Sheet1",
+    "fileName": "testData.xls",
+    "xOffset": 19,
+    "yOffset": 0,
+    "i_range": 0,
+    "j_range": 30,
+    "rowKeep": [["WEO Subject Code", "NGDP_RPCH"]]
+}
