@@ -1,3 +1,6 @@
 data/fredConf.py
 *.pyc
 *__pycache__/
+raw/*
+submission.csv
+
