@@ -3,4 +3,7 @@ data/fredConf.py
 *__pycache__/
 raw/*
 submission.csv
+json/*
+models/*
+preProcessing/*
 

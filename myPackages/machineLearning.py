@@ -295,10 +295,16 @@ def getVocab(df):
             print ("- \"" + column+ "\" is already numerical")
             #print (column + ": Number")
 
+    path = open("preProcessing/vocab.sav", "wb")
+    pickle.dump(vocabDict, path)
+
     return vocabDict
 
-def processX(df, yColumn, vocab):
+def processX(df, yColumn):
     print ("\nProcessing independent variables (X)...")
+    # Load vocab
+    vocab = pickle.load(open("preProcessing/vocab.sav", "rb"))
+
     # Exclude y
     if yColumn in df:
         df = df.drop([yColumn], axis = 1)
@@ -336,18 +342,12 @@ def processY(df, yColumn):
 ##############
 def predict(X):
     print ("Predicting...")
+    regressors = []
+        path = open("models/" + names[i] + ".sav", "wb")
+        pickle.dump(regressors[i], path)
 
     for i in range(len(regressors)):
         print ("\nTraining: " + str(regressors[i]))
-        bestParameters = crossValidate(X, y, regressors[i], hyperParameters[i])
-
-        regressors[i].set_params(**bestParameters)
-        regressors[i].fit(X, y)
-
-        score = regressors[i].score(X, y)
-        print (score)
-        path = open("models/" + names[i] + ".sav", "wb")
-        s = pickle.dump(regressors[i], path)
     return y
 
 
