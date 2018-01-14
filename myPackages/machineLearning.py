@@ -5,37 +5,272 @@
 import pandas as pd
 import numpy as np
 
-import pickle
-
 # General
 import math
 import os
 import string
+import pickle
+
+# Workflow
+from sklearn.model_selection import GridSearchCV
+
+from sklearn.base import BaseEstimator
+from sklearn.base import TransformerMixin
+
+from sklearn.pipeline import Pipeline
+from sklearn.pipeline import FeatureUnion
 
 # Preprocessing
 from sklearn.preprocessing import Imputer
+from sklearn.preprocessing import StandardScaler
+
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-# Cross validation
-from sklearn.model_selection import GridSearchCV
-
 # Models
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import BaggingClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.ensemble import AdaBoostClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 
 from sklearn.svm import SVC
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 
-
 from sklearn.neighbors import KNeighborsClassifier
 
 from sklearn.naive_bayes import GaussianNB
+
+
+################
+# Master train #
+################
+def train(X, y, projectName):
+    print ("\nIdentifying type of problem...")
+
+    imputer = Imputer(missing_values = "NaN", strategy = "mean", axis = 0)
+
+    numberPipeline = Pipeline([
+        ("numberFilter", GetNumbers()),
+        ("imputer", imputer)
+    ])
+
+    textPipeline = Pipeline([
+        ("textFilter", GetText()),
+        ("vectoriser", MixedDict())
+    ])
+
+    transformPipeline = [
+        ("feats", FeatureUnion([
+            ("numberPipeline", numberPipeline),
+            ("textPipeline", textPipeline)
+        ])),
+        ("scaler", StandardScaler()),
+    ]
+
+    if isClf(y):
+        models, names = trainClf(X, y, projectName, transformPipeline)
+    else:
+        models, names = trainReg(X, y, projectName, transformPipeline)
+
+    for i in range(len(models)):
+        path = os.path.join("models", projectName, names[i] + ".sav")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        f = open(path, "wb")
+
+        pickle.dump(models[i], f)
+
+    return
+
+def stackedPredict(X, json_data, index):
+    projectName = json_data["projectName"]
+    model_dir = "models"
+    basePath = os.path.join(model_dir, projectName)
+    models = os.listdir(basePath)
+    df = pd.DataFrame()
+
+    skipName = "ensemble.sav"
+
+    for model_name in models:
+        if model_name != skipName:
+            print ("95")
+            path = os.path.join(basePath, model_name)
+
+            model = pickle.load(open(path, "rb"))
+            print (model_name.split(".")[0])
+
+            y = model.predict(X)
+            print ("done")
+            df[model_name] = y
+
+    path = os.path.join(basePath, skipName)
+    model = pickle.load(open(path, "rb"))
+    print ("alpha")
+    y = model.predict(df)
+    print ("beta")
+    model_name = skipName
+    output = pd.DataFrame(y, columns = [json_data["outputY"]], index = index.index)
+    output[json_data["indexCol"]] = output.index
+    output = output[[json_data["indexCol"], json_data["outputY"]]]
+    writeCSV(json_data["outputFile"]+"_"+model_name+".csv", output, projectName)
+
+    return
+
+def stackedTrain(X, y, projectName):
+    print ("\nTraining stacked...")
+    model_dir = "models"
+    basePath = os.path.join(model_dir, projectName)
+    models = os.listdir(basePath)
+
+    df = pd.DataFrame()#data=y, columns = ["y"])
+    y = pd.DataFrame(data=y, columns = ["y"])
+    skipName = "ensemble.sav"
+
+    for model_name in models:
+        print ("91")
+        if model_name != skipName:
+            print (model_name)
+            path = os.path.join(basePath, model_name)
+
+            model = pickle.load(open(path, "rb"))
+            print (model_name.split(".")[0])
+
+            y = model.predict(X)
+            df[model_name] = y
+
+    clf = RandomForestClassifier()
+    print ("here!!!")
+    print (df)
+    print (y)
+    clf.fit(df, y)
+
+    path = os.path.join("models", projectName, skipName)
+    f = open(path, "wb")
+    pickle.dump(clf, f)
+      
+    return
+
+################
+# Transformers #
+################
+def isNumber(cType):
+    if cType != np.float64 and cType != np.int64:
+        return False
+    return True
+
+class GetText(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        a = 1
+
+    def transform(self, X, *_):
+        for column in X.columns:
+            cType = X[column].dtype
+            if isNumber(cType):
+                X = X.drop([column], axis = 1)
+        return X
+
+    def fit(self, X, *_):
+        return self
+
+class GetNumbers(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        a = 1
+
+    def transform(self, X, *_):
+        for column in X.columns:
+            cType = X[column].dtype
+            if not isNumber(cType):
+                X = X.drop([column], axis = 1)
+        return X
+
+    def fit(self, X, *_):
+        return self
+
+def text_process(text):
+    text = str(text)
+    text = [char for char in text if char not in string.punctuation]
+    text = "".join(text)
+
+    text = text.lower()
+    
+    text = [word for word in text.split()]# if word not in stopWords]
+    return text
+
+def textExtraction(df, series):
+    vectorizer = CountVectorizer(analyzer = text_process, min_df = 0.1)
+    df[series] = df[series].replace(np.nan, '', regex=True)
+    vectorizer.fit_transform(df[series])
+    vocab = vectorizer.get_feature_names()
+    
+    return vocab
+
+class MixedDict(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        self.vocabDict = {}
+
+    def transform(self, X, *_):
+        for column in X.columns:
+            if column in self.vocabDict:
+                vectorizer = CountVectorizer(analyzer = text_process, vocabulary = self.vocabDict[column])
+                if len(vectorizer.vocabulary) > 0:
+                    vector = vectorizer.fit_transform(X[column])
+                    i = 0
+                    vector = vector.toarray()
+                    for each in vector.T:
+                        new_name = column + "_" + str(i)
+                        X[new_name] = vector.T[i]
+                        i = i + 1
+                X = X.drop([column], axis = 1)
+
+        return X
+
+    def fit(self, X, *_):
+        for column in X.columns:
+            try: 
+                vocab = textExtraction(X, column)
+                self.vocabDict[column] = vocab
+                #print ("- \"" + column + "\" has a vocabulary\n--\t"+ str(vocab))
+
+            except:
+                self.vocabDict[column] = []
+                #print ("- \"" + column+ "\" does not have a vocabulary")
+
+        return self
+
+##############
+# Predicting #
+##############
+def predict(X, json_data, index):
+    print ("\nPredicting...")
+    regressors = []
+    model_dir = "models"
+    basePath = os.path.join(model_dir, json_data["projectName"])
+    models = os.listdir(basePath)
+
+    skipName = "ensemble.sav"
+
+    for model_name in models:
+        if model_name != skipName:
+        
+            path = os.path.join(basePath, model_name)
+
+            model = pickle.load(open(path, "rb"))
+            print (model_name.split(".")[0])
+
+            y = model.predict(X)
+            #print ("bob")
+            #print (index[0])
+            #print (json_data["indexCol"])
+            output = pd.DataFrame(y, columns = [json_data["outputY"]], index = index.index)
+            output[json_data["indexCol"]] = output.index
+            output = output[[json_data["indexCol"], json_data["outputY"]]]
+            writeCSV(json_data["outputFile"]+"_"+model_name+".csv", output, json_data["projectName"])
+    print ("DONE PREDICTING!")
+    return
 
 ###############################
 # Classification / Regression #
@@ -54,10 +289,10 @@ def isClf(y):
         return True
     return False
 
-############
-# Training #
-############
-def trainClf(X, y):
+####################
+# Train classifier #
+####################
+def trainClf(X, y, projectName, transformPipeline):
     print ("Type: Classification")
 
     names = []
@@ -79,7 +314,20 @@ def trainClf(X, y):
     hyperParameters.append(parameters)
 
     ####
-    # Random Forest (bagging)
+    # Bagging
+    ####
+    clf = BaggingClassifier()
+
+    nEstimatorsArray = [10]
+
+    parameters = [{"n_estimators": nEstimatorsArray}]
+
+    names.append("Bagging")
+    classifiers.append(clf)
+    hyperParameters.append(parameters)
+
+    ####
+    # Random Forest (bagging+)
     ####
     clf = RandomForestClassifier()
 
@@ -104,6 +352,20 @@ def trainClf(X, y):
     names.append("Adaboost")
     classifiers.append(clf)
     hyperParameters.append(parameters)
+
+    ####
+    # Gradient boosting
+    ####
+    clf = GradientBoostingClassifier()
+
+    nEstimatorsArray = [10]
+
+    parameters = [{"n_estimators": nEstimatorsArray}]
+
+    names.append("Gradient boosting")
+    classifiers.append(clf)
+    hyperParameters.append(parameters)
+
     ####
     # Logistic regression
     ####
@@ -172,20 +434,34 @@ def trainClf(X, y):
     ####
     # Train
     ####
+    pipelines = []
     for i in range(len(classifiers)):
         print ("\nTraining: " + str(classifiers[i]))
-        bestParameters = crossValidate(X, y, classifiers[i], hyperParameters[i])
 
-        classifiers[i].set_params(**bestParameters)
-        classifiers[i].fit(X, y)
+        # Get pipeline
+        pipelineArray = transformPipeline[:]
+        pipelineArray.append(("clf", classifiers[i]))
+        pipeline = Pipeline(pipelineArray)
 
-        score = classifiers[i].score(X, y)
-        print (score)
-        path = open("models/" + names[i] + ".sav", "wb")
-        s = pickle.dump(classifiers[i], path)
-    return
+        kSplits = 2
+        param_grid = {}
+        for parameter in hyperParameters[i][0]:
+            param_grid["clf__" + parameter]=hyperParameters[i][0][parameter]
+        grid_search = GridSearchCV(pipeline, param_grid = param_grid, cv = kSplits)
+        grid_search.fit(X, y)
+        bestParameters = grid_search.best_params_
 
-def trainReg(X, y):
+        pipeline.set_params(**bestParameters)
+
+        pipeline.fit(X, y)
+        pipelines.append(pipeline)
+
+    return pipelines, names
+
+####################
+# Train regression #
+####################
+def trainReg(X, y, projectName, transformPipeline):
     print ("Type: Regression")
 
     names = []
@@ -202,152 +478,39 @@ def trainReg(X, y):
         regressors[i].set_params(**bestParameters)
         regressors[i].fit(X, y)
 
-        score = regressors[i].score(X, y)
-        print (score)
-        path = open("models/" + names[i] + ".sav", "wb")
-        s = pickle.dump(regressors[i], path)
-    return
-
-def train(X, y):
-    print ("\nIdentifying type of problem...")
-    if isClf(y):
-        trainClf(X, y)
-        return
-    else:
-        print ("Type: Regression")
-        trainReg(X, y)
-        return
-
-#def ensemblePredict(X, classifiers, weights):
-#    normalWeights = []
-#    totalWeight = sum(weights)
-#    for weight in weights:
-#         normalWeights.append(weight/totalWeight)
-#    for i in range(len(classifiers)):
-#        print (classifiers[i])
-#        y_ind = classifiers[i].predict(X)
-#        y = y + y_ind * normalWeights[i]
-#    return y
-
-def crossValidate(X, y, model, parameters):
-    kSplits = 2
-    grid_search = GridSearchCV(model, parameters, cv = kSplits)
-    #print (parameters)
-    #print (X)
-    grid_search.fit(X, y)
-    return grid_search.best_params_
+    return pipelines
 
 ################
 # Read / Write #
 ################
 def readCSV(projectName, fileName):
-    fileName 
     print ("\nReading CSV...")
     path = os.path.join("raw", projectName, fileName)
     df = pd.read_csv(path)
     return df
 
-def writeCSV(fileName, df):
+def writeCSV(fileName, df, projectName):
     print ("\nWriting CSV...")
-    df.to_csv(fileName, index = False, header = True)
+    path = os.path.join("output", projectName, fileName)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
 
-############
-# Cleaning #
-############
-def text_process(text):
-    #print ("PROCESSING TEXT...")
-    #print (text)	
-    text = str(text)
-    text = [char for char in text if char not in string.punctuation]
-    text = "".join(text)
+    df.to_csv(path, index = False, header = True)
 
-    text = text.lower()
-    
-    text = [word for word in text.split()]# if word not in stopWords]
-    return text
-
-def textExtraction(df, series):
-    #print ("EXTRACTING TEXT...")
-    vectorizer = CountVectorizer(analyzer = text_process, min_df = 0.1)
-    df[series] = df[series].replace(np.nan, '', regex=True)
-    vectorizer.fit_transform(df[series])
-    vocab = vectorizer.get_feature_names()
-    
-    return vocab
-
-def getVocab(df):
-    print("\nGetting vocabulary...")
-    vocabDict = {}
-    for column in df.columns:
-        cType = df[column].dtype
-        if cType != np.float64 and cType != np.int64:
-            #print (column + ": String")
-            try: 
-                vocab = textExtraction(df, column)
-                vocabDict[column] = vocab
-                print ("- \"" + column + "\" has a vocabulary\n--\t"+ str(vocab))
-
-            except:
-                vocabDict[column] = []
-                print ("- \"" + column+ "\" does not have a vocabulary")
-
-        else:
-            print ("- \"" + column+ "\" is already numerical")
-            #print (column + ": Number")
-
-    path = open("preProcessing/vocab.sav", "wb")
-    pickle.dump(vocabDict, path)
-
-    return vocabDict
-
-def processX(df, yColumn):
-    print ("\nProcessing independent variables (X)...")
-    # Load vocab
-    vocab = pickle.load(open("preProcessing/vocab.sav", "rb"))
-
-    # Exclude y
-    if yColumn in df:
-        df = df.drop([yColumn], axis = 1)
-
-    # Text to vector
-    for column in df.columns:
-
-        if column in vocab:
-            vectorizer = CountVectorizer(analyzer = text_process, vocabulary = vocab[column])
-            if len(vectorizer.vocabulary) > 0:
-                vector = vectorizer.fit_transform(df[column])
-                i = 0
-                vector = vector.toarray()
-                for each in vector.T:
-                    new_name = column + "_" + str(i)
-                    df[new_name] = vector.T[i]
-                    i = i + 1
+##################
+# Select columns #
+##################
+def getX(df, ignore):
+    print ("\nSelect columns (X)...")
+    # Exclude columns
+    for column in ignore:
+        if column in df:
             df = df.drop([column], axis = 1)
-
-    # Impute
-    imp = Imputer(missing_values = "NaN", strategy = "mean", axis = 0)
-    values = imp.fit_transform(df.values)
-    df = pd.DataFrame(values, index = df.index, columns = df.columns)
 
     return df
 
-def processY(df, yColumn):
-    print ("\nProcessing dependent variable (Y)...")
+def getY(df, yColumn):
+    print ("\nSelect columns (Y)...")
     y = df[yColumn]
     y = y.values.ravel()
     return y
-
-##############
-# Predicting #
-##############
-def predict(X):
-    print ("Predicting...")
-    regressors = []
-        path = open("models/" + names[i] + ".sav", "wb")
-        pickle.dump(regressors[i], path)
-
-    for i in range(len(regressors)):
-        print ("\nTraining: " + str(regressors[i]))
-    return y
-
 

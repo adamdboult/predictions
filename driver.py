@@ -2,8 +2,13 @@
 # Dependencies #
 ################
 import myPackages.machineLearning as myPack
+
 import json
 import sys
+
+import pandas as pd
+
+from sklearn.model_selection import train_test_split
 
 ########
 # Main #
@@ -16,8 +21,15 @@ def main():
     json_file = open(json_path).read()
     json_data = json.loads(json_file)
 
+    projectName = json_data["projectName"]
+
+    ignore = [json_data["indexCol"], json_data["inputY"]]
+
+    ########################
+    # What are we running? #
+    ########################
     run_train = True
-    run_test = False
+    run_test = True
     if len(sys.argv) > 2:
         test_train = sys.argv[2]
         if test_train == "train":
@@ -25,44 +37,49 @@ def main():
 
         elif test_train == "test":
             run_train = False
+
+    #########
+    # Train #
+    #########
+    if run_train:
+        # Import
+        df = myPack.readCSV(projectName, json_data["trainFile"])
+
+        # Select columns
+        X = myPack.getX(df, ignore)
+        y = myPack.getY(df, json_data["inputY"])
+
+        X_train, X_holdout, y_train, y_holdout = train_test_split(X, y, test_size = 0.25)
+
+        # Train
+        myPack.train(X_train, y_train, projectName)
+
+        # Stacked ensemble
+        myPack.stackedTrain(X_holdout, y_holdout, projectName)
+
+    ###########
+    # Predict #
+    ###########
+    if run_test:
+        # Import
+        df = myPack.readCSV(projectName, json_data["testFile"])
     
-    #################
-    # Training data #
-    #################
-    # Import
-    df = myPack.readCSV(json_data["projectName"], json_data["trainFile"])
+        # Select columns
+        X = myPack.getX(df, ignore)
 
-    # Clean
-    vocab = myPack.getVocab(df)
-    X = myPack.processX(df, json_data["inputY"])
-    y = myPack.processY(df, [json_data["inputY"]])
-    
-    # Train
-    myPack.train(X, y)
+        if json_data["indexCol"] in df:
+            index = pd.DataFrame(data=df[json_data["indexCol"]], columns = [json_data["indexCol"]])
+            index.index = df[json_data["indexCol"]]
+            print (index)
+            index = index.drop([json_data["indexCol"]], axis = 1)
+        else:
+            index = pd.DataFrame()
+            index.index += 1
+        print (index)
+        # Predict
+        myPack.predict(X, json_data, index)
+        myPack.stackedPredict(X, json_data, index)
 
-    #############
-    # Test data #
-    #############
-    # Import
-    df = myPack.readCSV(json_data["projectName"], json_data["testFile"])
-    
-    # Clean
-    X = myPack.processX(df, json_data["inputY"])
-
-    # Predict
-    y = myPack.predict(X)
-
-    # Output    
-    output = pd.DataFrame(y, columns = [json_data["outputY"]])
-
-    if json_data["indexCol"] in df:
-        output[json_data["indexCol"]] = df[json_data["indexCol"]]
-    else:
-        output.index += 1
-        output[json_data["indexCol"]] = output.index
-    output = output[[json_data["indexCol"], json_data["outputY"]]]
-
-    myPack.writeCSV(json_data["outputFile"], output)
     
 ############
 # Run main #
