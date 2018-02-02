@@ -4,6 +4,7 @@
 # Sci
 import pandas as pd
 import numpy as np
+from scipy import stats
 
 # General
 import math
@@ -13,45 +14,37 @@ import pickle
 
 # Workflow
 from sklearn.model_selection import GridSearchCV
-
-from sklearn.base import BaseEstimator
-from sklearn.base import TransformerMixin
-
-from sklearn.pipeline import Pipeline
-from sklearn.pipeline import FeatureUnion
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline, FeatureUnion
 
 # Preprocessing
-from sklearn.preprocessing import Imputer
-from sklearn.preprocessing import StandardScaler
-
+from sklearn.preprocessing import Imputer, StandardScaler
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.feature_extraction.text import TfidfTransformer
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer, TfidfVectorizer
 
-# Models
+# Trees
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import BaggingClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.ensemble import AdaBoostClassifier
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 
+# Ensemble
+from sklearn.ensemble import BaggingClassifier, AdaBoostClassifier
+
+# Support vector machines
 from sklearn.svm import SVC
 
+# Other classifiers
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
-
 from sklearn.neighbors import KNeighborsClassifier
-
 from sklearn.naive_bayes import GaussianNB
 
+# Metrics
+from sklearn.metrics import confusion_matrix
 
 ################
 # Master train #
 ################
-def train(X, y, projectName):
-    print ("\nIdentifying type of problem...")
-
+def getTransformPipeline():
     imputer = Imputer(missing_values = "NaN", strategy = "mean", axis = 0)
 
     numberPipeline = Pipeline([
@@ -71,87 +64,95 @@ def train(X, y, projectName):
         ])),
         ("scaler", StandardScaler()),
     ]
+    return transformPipeline
 
+def train(X, y, projectName, scoring):
+    print ("\nIdentifying type of problem...")
+
+    #transformPipeline = getTransformPipeline()
     if isClf(y):
-        models, names = trainClf(X, y, projectName, transformPipeline)
+        models, names = trainClf(X, y, projectName, scoring)
     else:
-        models, names = trainReg(X, y, projectName, transformPipeline)
+        models, names = trainReg(X, y, projectName, scoring)
 
     for i in range(len(models)):
+        # Save model
         path = os.path.join("models", projectName, names[i] + ".sav")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         f = open(path, "wb")
-
         pickle.dump(models[i], f)
 
-    return
+def stackedTrain(X, y, projectName, scoring):
 
-def stackedPredict(X, json_data, index):
-    projectName = json_data["projectName"]
-    model_dir = "models"
-    basePath = os.path.join(model_dir, projectName)
-    models = os.listdir(basePath)
-    df = pd.DataFrame()
-
-    skipName = "ensemble.sav"
-
-    for model_name in models:
-        if model_name != skipName:
-            print ("95")
-            path = os.path.join(basePath, model_name)
-
-            model = pickle.load(open(path, "rb"))
-            print (model_name.split(".")[0])
-
-            y = model.predict(X)
-            print ("done")
-            df[model_name] = y
-
-    path = os.path.join(basePath, skipName)
-    model = pickle.load(open(path, "rb"))
-    print ("alpha")
-    y = model.predict(df)
-    print ("beta")
-    model_name = skipName
-    output = pd.DataFrame(y, columns = [json_data["outputY"]], index = index.index)
-    output[json_data["indexCol"]] = output.index
-    output = output[[json_data["indexCol"], json_data["outputY"]]]
-    writeCSV(json_data["outputFile"]+"_"+model_name+".csv", output, projectName)
-
-    return
-
-def stackedTrain(X, y, projectName):
     print ("\nTraining stacked...")
     model_dir = "models"
     basePath = os.path.join(model_dir, projectName)
     models = os.listdir(basePath)
 
-    df = pd.DataFrame()#data=y, columns = ["y"])
-    y = pd.DataFrame(data=y, columns = ["y"])
-    skipName = "ensemble.sav"
+    df = pd.DataFrame()
+    #y = pd.DataFrame(data = y, columns = ["y"])
+    skipName = "ensemble"
 
     for model_name in models:
-        print ("91")
-        if model_name != skipName:
-            print (model_name)
+        model_name_base = model_name.split(".")[0]
+        suffix          = model_name.split(".")[1]
+        if model_name_base != skipName and suffix == "sav":
+            print ("\n" + model_name_base)
+            
             path = os.path.join(basePath, model_name)
-
             model = pickle.load(open(path, "rb"))
-            print (model_name.split(".")[0])
 
-            y = model.predict(X)
-            df[model_name] = y
+            y_hat = model.predict(X)
+            df[model_name_base] = y_hat
 
-    clf = RandomForestClassifier()
-    print ("here!!!")
-    print (df)
-    print (y)
-    clf.fit(df, y)
+            tn, fp, fn, tp = confusion_matrix(y, y_hat).ravel()
+            
+            n = tn + fp + fn + tp
+            precision = tp / (tp + fp)
+            recall = tp / (tp + fn)
+            accuracy = (tp + tn) / n
+            f1 = stats.hmean([precision, recall])
 
-    path = os.path.join("models", projectName, skipName)
+            print (accuracy)
+            
+            path = os.path.join("models", projectName, model_name_base + ".txt")
+            f = open(path, "w")
+            
+            f.write("N:\t\t" + str(n))
+            f.write("\n\nTrue positive:\t" + str(tp) + "\t(" + str(tp/n) + ")")
+            f.write("\nTrue negative:\t" + str(tn) + "\t(" + str(tn/n) + ")")
+            f.write("\nFalse positive:\t" + str(fp) + "\t(" + str(fp/n) + ")")
+            f.write("\nFalse negative:\t" + str(fn) + "\t(" + str(fn/n) + ")")
+            
+            f.write("\n\nAccuracy:\t" + str(accuracy))
+            
+            f.write("\n\nPrecision:\t" + str(precision))
+            f.write("\nRecall:\t\t" + str(recall))
+            f.write("\nF1:\t\t" + str(f1))
+            
+            f.close()
+
+    kSplits = 2
+    param_grid = {}
+    model = RandomForestClassifier()            
+
+    #transformPipeline = getTransformPipeline()
+    #pipelineArray = transformPipeline[:]
+    #pipelineArray.append(("clf", model))
+    #pipeline = Pipeline(pipelineArray)
+       
+    grid_search = GridSearchCV(model, param_grid = param_grid, cv = kSplits, verbose = 2, scoring = scoring)
+    grid_search.fit(df, y)
+    bestParameters = grid_search.best_params_
+
+    model.set_params(**bestParameters)
+
+    model.fit(df, y)
+
+    path = os.path.join("models", projectName, skipName + ".sav")
     f = open(path, "wb")
-    pickle.dump(clf, f)
-      
+    pickle.dump(model, f)
+    f.close()  
     return
 
 ################
@@ -254,22 +255,56 @@ def predict(X, json_data, index):
     skipName = "ensemble.sav"
 
     for model_name in models:
-        if model_name != skipName:
-        
-            path = os.path.join(basePath, model_name)
-
-            model = pickle.load(open(path, "rb"))
+        suffix = model_name.split(".")[1]
+        if model_name != skipName and suffix == "sav":
             print (model_name.split(".")[0])
+            path = os.path.join(basePath, model_name)
+            model_name_base = model_name.split(".")[0]
+            model = pickle.load(open(path, "rb"))
 
             y = model.predict(X)
-            #print ("bob")
-            #print (index[0])
-            #print (json_data["indexCol"])
             output = pd.DataFrame(y, columns = [json_data["outputY"]], index = index.index)
             output[json_data["indexCol"]] = output.index
             output = output[[json_data["indexCol"], json_data["outputY"]]]
-            writeCSV(json_data["outputFile"]+"_"+model_name+".csv", output, json_data["projectName"])
-    print ("DONE PREDICTING!")
+            writeCSV(json_data["outputFile"] + "_" + model_name_base + ".csv", output, json_data["projectName"])
+
+    return
+
+def stackedPredict(X, json_data, index):
+    print ("Stacked predicting...")
+    projectName = json_data["projectName"]
+    model_dir = "models"
+    csv_dir = "output"
+    basePath = os.path.join(csv_dir, projectName)
+    modelPath = os.path.join(model_dir, projectName)
+
+    CSVs = os.listdir(basePath)
+    df = pd.DataFrame()
+
+    baseFileName = json_data["outputFile"].split(".")[0]
+
+    skipName = baseFileName + "_ensemble.csv"
+
+    for csv_name in CSVs:
+        if csv_name != skipName:
+            path = os.path.join(basePath, csv_name)
+            csv = pd.read_csv(path)
+
+            #print (csv)
+            #y = model.predict(X)
+            df[csv_name] = csv[json_data["outputY"]]
+
+    model_name = "ensemble.sav"
+
+    path = os.path.join(modelPath, model_name)
+    model = pickle.load(open(path, "rb"))
+    y = model.predict(df)
+
+    output = pd.DataFrame(y, columns = [json_data["outputY"]], index = index.index)
+    output[json_data["indexCol"]] = output.index
+    output = output[[json_data["indexCol"], json_data["outputY"]]]
+    writeCSV(skipName, output, projectName)
+
     return
 
 ###############################
@@ -292,7 +327,9 @@ def isClf(y):
 ####################
 # Train classifier #
 ####################
-def trainClf(X, y, projectName, transformPipeline):
+def trainClf(X, y, projectName, scoring):
+    transformPipeline = getTransformPipeline()
+    
     print ("Type: Classification")
 
     names = []
@@ -304,8 +341,8 @@ def trainClf(X, y, projectName, transformPipeline):
     ####
     clf = DecisionTreeClassifier()
 
-    maxDepthArray = np.arange(1,51,1)
-    minSamplesSplitArray = np.arange(2,11,1)
+    maxDepthArray = [20]
+    minSamplesSplitArray = [4]
 
     parameters = [{"max_depth":maxDepthArray, "min_samples_split": minSamplesSplitArray}]
 
@@ -331,8 +368,8 @@ def trainClf(X, y, projectName, transformPipeline):
     ####
     clf = RandomForestClassifier()
 
-    maxDepthArray = np.arange(1,51,1)
-    minSamplesSplitArray = np.arange(2,11,1)
+    maxDepthArray = [20]
+    minSamplesSplitArray = [2]
 
     parameters = [{"max_depth":maxDepthArray, "min_samples_split": minSamplesSplitArray}]
 
@@ -446,8 +483,9 @@ def trainClf(X, y, projectName, transformPipeline):
         kSplits = 2
         param_grid = {}
         for parameter in hyperParameters[i][0]:
-            param_grid["clf__" + parameter]=hyperParameters[i][0][parameter]
-        grid_search = GridSearchCV(pipeline, param_grid = param_grid, cv = kSplits)
+            param_grid["clf__" + parameter] = hyperParameters[i][0][parameter]
+
+        grid_search = GridSearchCV(pipeline, param_grid = param_grid, cv = kSplits, verbose = 2, scoring = scoring)
         grid_search.fit(X, y)
         bestParameters = grid_search.best_params_
 
@@ -461,7 +499,8 @@ def trainClf(X, y, projectName, transformPipeline):
 ####################
 # Train regression #
 ####################
-def trainReg(X, y, projectName, transformPipeline):
+def trainReg(X, y, projectName):
+    transformPipeline = transformPipeline()
     print ("Type: Regression")
 
     names = []

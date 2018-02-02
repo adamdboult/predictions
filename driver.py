@@ -14,6 +14,7 @@ from sklearn.model_selection import train_test_split
 # Main #
 ########
 def main():
+    
     #############
     # Variables #
     #############
@@ -52,10 +53,15 @@ def main():
         X_train, X_holdout, y_train, y_holdout = train_test_split(X, y, test_size = 0.25)
 
         # Train
-        myPack.train(X_train, y_train, projectName)
+        if "scoring" in json_data:
+            scoring = json_data["scoring"]
+        else:
+            scoring = "accuracy"
+        
+        myPack.train(X_train, y_train, projectName, scoring)
 
         # Stacked ensemble
-        myPack.stackedTrain(X_holdout, y_holdout, projectName)
+        myPack.stackedTrain(X_holdout, y_holdout, projectName, scoring)
 
     ###########
     # Predict #
@@ -70,16 +76,14 @@ def main():
         if json_data["indexCol"] in df:
             index = pd.DataFrame(data=df[json_data["indexCol"]], columns = [json_data["indexCol"]])
             index.index = df[json_data["indexCol"]]
-            print (index)
             index = index.drop([json_data["indexCol"]], axis = 1)
         else:
-            index = pd.DataFrame()
+            index = pd.DataFrame(index=df.index)
             index.index += 1
-        print (index)
+        #print (index)
         # Predict
         myPack.predict(X, json_data, index)
         myPack.stackedPredict(X, json_data, index)
-
     
 ############
 # Run main #
